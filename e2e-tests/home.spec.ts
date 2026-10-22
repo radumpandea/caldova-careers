@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -43,6 +43,55 @@ test.describe('Open roles listing', () => {
             await expect(page.getByText(location, { exact: true })).toBeVisible();
         });
     }
+
+    test.describe('filters', () => {
+        /**
+         * Locate the role cards currently visible after filtering.
+         *
+         * @param page - The Playwright page under test.
+         * @returns A locator for the visible role cards.
+         */
+        const cards = (page: Page) => page.getByTestId('role-card').filter({ visible: true });
+
+        test('filters by department', async ({ page }) => {
+            await page.goto('/');
+            await page.getByTestId('department-filter').selectOption('Finance');
+            await page.getByTestId('filters-apply').click();
+            await expect(cards(page)).toHaveCount(2);
+            await expect(page.getByTestId('role-department').filter({ visible: true })).toHaveText([
+                'Finance',
+                'Finance',
+            ]);
+        });
+
+        test('filters by location', async ({ page }) => {
+            await page.goto('/');
+            await page.getByTestId('location-filter').selectOption('Woodinville, WA, USA');
+            await page.getByTestId('filters-apply').click();
+            await expect(cards(page)).toHaveCount(3);
+        });
+
+        test('combines department and location', async ({ page }) => {
+            await page.goto('/?department=Finance&location=Woodinville%2C+WA%2C+USA');
+            await expect(page.getByTestId('department-filter')).toHaveValue('Finance');
+            await expect(cards(page)).toHaveCount(1);
+        });
+
+        test('reset restores all roles', async ({ page }) => {
+            await page.goto('/?department=Finance');
+            await expect(cards(page)).toHaveCount(2);
+            await page.getByTestId('filters-reset').click();
+            await expect(cards(page)).toHaveCount(expectedRoleCount);
+        });
+
+        test('shows an empty state when nothing matches', async ({ page }) => {
+            await page.goto('/?department=Finance&location=London%2C+United+Kingdom');
+            await expect(cards(page)).toHaveCount(0);
+            await expect(page.getByTestId('empty-state-text')).toBeVisible();
+            await page.getByTestId('empty-reset').click();
+            await expect(cards(page)).toHaveCount(expectedRoleCount);
+        });
+    });
 
     test('has no automatically detectable accessibility violations', async ({ page }) => {
         await page.goto('/');
