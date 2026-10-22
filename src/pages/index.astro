@@ -3,7 +3,8 @@ import { getCollection } from 'astro:content';
 import Layout from '../layouts/Layout.astro';
 import RoleCard from '../components/RoleCard.astro';
 import EmptyState from '../components/EmptyState.astro';
-import { sortByNewest } from '../lib/jobs';
+import RoleFilters from '../components/RoleFilters.astro';
+import { sortByNewest, getDepartments, getLocations } from '../lib/jobs';
 import type { Job } from '../types/job';
 
 export const prerender = true;
@@ -12,6 +13,8 @@ const entries = await getCollection('jobs');
 const jobs: Job[] = sortByNewest(
     entries.map((entry) => ({ slug: entry.id, ...entry.data })),
 );
+const departments = getDepartments(jobs);
+const locations = getLocations(jobs);
 ---
 
 <Layout title="Caldova Careers — Open roles">
@@ -26,6 +29,26 @@ const jobs: Job[] = sortByNewest(
 
     <h2 class="text-2xl font-medium mb-6 text-slate-100">Open roles</h2>
 
+    <RoleFilters departments={departments} locations={locations} />
+    <p class="mb-4 text-sm text-slate-400" role="status" aria-live="polite" data-testid="roles-count">
+      Showing {jobs.length} of {jobs.length} roles
+    </p>
+
+    <div hidden data-testid="roles-no-match">
+      <EmptyState>
+        <p class="text-slate-300 mb-4" data-testid="empty-state-text">
+          No roles match the selected filters.
+        </p>
+        <a
+          href="/"
+          class="text-blue-400 underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          data-testid="empty-reset"
+        >
+          Reset filters to see all roles
+        </a>
+      </EmptyState>
+    </div>
+
     {jobs.length === 0 ? (
       <EmptyState text="There are no open roles right now. Check back soon." />
     ) : (
@@ -37,4 +60,31 @@ const jobs: Job[] = sortByNewest(
       </div>
     )}
   </div>
+  <script is:inline type="application/json" id="roles-data" set:html={JSON.stringify(jobs)} />
+  <script>
+    import { filterJobs, parseJobFilters } from '../lib/jobs';
+    import type { Job } from '../types/job';
+
+    /** Plain job data serialized by the page for client-side filtering. */
+    const jobs: Job[] = JSON.parse(document.getElementById('roles-data')?.textContent ?? '[]');
+    /** Filters selected through the URL query string. */
+    const filters = parseJobFilters(new URLSearchParams(window.location.search), jobs);
+
+    const department = document.getElementById('department-filter') as HTMLSelectElement | null;
+    const location = document.getElementById('location-filter') as HTMLSelectElement | null;
+    if (department) department.value = filters.department ?? '';
+    if (location) location.value = filters.location ?? '';
+
+    /** Slugs of the jobs that match the selected filters. */
+    const matching = new Set(filterJobs(jobs, filters).map((job) => job.slug));
+    document.querySelectorAll<HTMLElement>('[data-testid="role-card"]').forEach((card) => {
+      card.hidden = !matching.has(card.dataset.jobId ?? '');
+    });
+    const grid = document.querySelector<HTMLElement>('[data-testid="roles-grid"]');
+    if (grid) grid.hidden = matching.size === 0;
+    const noMatch = document.querySelector<HTMLElement>('[data-testid="roles-no-match"]');
+    if (noMatch) noMatch.hidden = matching.size > 0 || jobs.length === 0;
+    const count = document.querySelector<HTMLElement>('[data-testid="roles-count"]');
+    if (count) count.textContent = `Showing ${matching.size} of ${jobs.length} roles`;
+  </script>
 </Layout>
